@@ -6,6 +6,8 @@ from typing import Dict, Optional, Any
 from urllib.parse import urlencode
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from datetime import datetime
+from jwt import PyJWKClient
 from config import Config
 from utils import Logger, HuaweiAuthError, ResponseFormatter, handle_exceptions
 
@@ -350,57 +352,45 @@ class HuaweiAuthService:
 
     def verify_id_token(self, id_token: str) -> Dict[str, Any]:
         """
-        验证ID Token
-        对应Java Demo中的IDTokenParser.verify方法
+        验证ID Token - 增强版本，基于华为AI推荐方案
         """
         try:
-            # 解码JWT头部获取kid
-            unverified_header = jwt.get_unverified_header(id_token)
-            kid = unverified_header.get('kid')
+            # 使用PyJWKClient自动获取最新JWKS公钥
+            jwks_client = PyJWKClient(self.config.HUAWEI_CERTS_URL)
+            signing_key = jwks_client.get_signing_key_from_jwt(id_token)
             
-            if not kid:
-                return {
-                    'success': False,
-                    'error': 'ID Token缺少kid字段'
-                }
-            
-            # 获取公钥
-            public_key = self._get_public_key_by_kid(kid)
-            if not public_key:
-                return {
-                    'success': False,
-                    'error': f'无法获取kid为{kid}的公钥'
-                }
-            
-            # 验证JWT
-            decoded_token = jwt.decode(
+            # 验证JWT，支持RS256和PS256算法
+            payload = jwt.decode(
                 id_token,
-                public_key,
-                algorithms=['RS256'],
-                issuer=self.config.HUAWEI_ISSUER,
+                key=signing_key.key,
+                algorithms=["RS256", "PS256"],
                 audience=self.config.HUAWEI_CLIENT_ID,
-                options={
-                    'verify_exp': True,
-                    'verify_iat': True,
-                    'verify_aud': True,
-                    'verify_iss': True
-                }
+                issuer=self.config.HUAWEI_ISSUER,
+                options={"require": ["exp", "iat", "iss", "aud"]}
             )
+
+            # 验证时间有效性
+            current_time = datetime.utcnow().timestamp()
+            if payload['exp'] < current_time:
+                return {
+                    'success': False,
+                    'error': 'Token已过期'
+                }
+            if payload['iat'] > current_time:
+                return {
+                    'success': False,
+                    'error': 'Token签发时间无效'
+                }
             
             return {
                 'success': True,
-                'data': decoded_token
+                'data': payload
             }
             
-        except jwt.ExpiredSignatureError:
+        except jwt.PyJWTError as e:
             return {
                 'success': False,
-                'error': 'ID Token已过期'
-            }
-        except jwt.InvalidTokenError as e:
-            return {
-                'success': False,
-                'error': f'ID Token无效: {str(e)}'
+                'error': f'Token验证失败: {str(e)}'
             }
         except Exception as e:
             return {
@@ -473,3 +463,86 @@ class HuaweiAuthService:
         except Exception as e:
             print(f"JWK转换RSA公钥失败: {e}")
             return None
+
+    def get_union_id(self, access_token: str) -> Dict[str, Any]:
+        """
+        获取UnionID - 基于华为AI推荐方案
+        通过华为用户信息接口获取UnionID
+        """
+        try:
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            data = {
+                "access_token": access_token,
+                "open_id": "OPENID"
+            }
+
+            response = requests.post(self.config.HUAWEI_USERINFO_ENDPOINT, headers=headers, data=data, timeout=30)
+            
+            if response.status_code != 200:
+                return {
+                    'success': False,
+                    'error': f'UnionID获取失败: {response.text}'
+                }
+            
+            result = response.json()
+            return {
+                'success': True,
+                'data': {
+                    'union_id': result.get('union_id'),
+                    'scope': result.get('scope', '')
+                }
+            }
+            
+        except requests.exceptions.RequestException as e:
+            return {
+                'success': False,
+                'error': f'网络请求异常: {str(e)}'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'获取UnionID异常: {str(e)}'
+            }
+
+    def validate_huawei_credentials(self, id_token: str, access_token: str) -> Dict[str, Any]:
+        """
+        华为凭证验证 - 基于华为AI推荐的完整方案
+        同时验证ID Token和Access Token，获取OpenID和UnionID
+        """
+        try:
+            # 验证ID Token
+            id_token_result = self.verify_id_token(id_token)
+            if not id_token_result.get('success'):
+                return ResponseFormatter.error(
+                    f"ID Token验证失败: {id_token_result.get('error')}",
+                    "id_token_invalid",
+                    400
+                )
+            
+            payload = id_token_result['data']
+            
+            # 获取UnionID
+            union_result = self.get_union_id(access_token)
+            if not union_result.get('success'):
+                self.logger.warning(f"UnionID获取失败: {union_result.get('error')}")
+                # UnionID获取失败不影响整体验证，继续处理
+                union_data = {'union_id': None, 'scope': ''}
+            else:
+                union_data = union_result['data']
+            
+            return ResponseFormatter.success({
+                "openid": payload.get('openid'),
+                "unionid": union_data.get('union_id'),
+                "scope": union_data.get('scope', ''),
+                "user_info": {
+                    "openid": payload.get('openid'),
+                    "unionid": union_data.get('union_id'),
+                    "display_name": payload.get('display_name', ''),
+                    "email": payload.get('email', ''),
+                    "picture": payload.get('picture', '')
+                }
+            }, "华为凭证验证成功")
+
+        except Exception as e:
+            self.logger.error(f"华为凭证验证异常: {str(e)}")
+            return ResponseFormatter.error(f"华为凭证验证异常: {str(e)}", "validation_error", 500)
