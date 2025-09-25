@@ -22,7 +22,7 @@ class Config:
     HUAWEI_TOKENINFO_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/tokeninfo'
     HUAWEI_AGC_TOKENINFO_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/tokeninfo'  # AGC Token验证接口
     HUAWEI_CERTS_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/certs'
-    HUAWEI_ISSUER = 'https://oauth-login.cloud.huawei.com'
+    HUAWEI_ISSUER = 'https://accounts.myhuawei.com'  # 修改为正确的issuer
     
     @classmethod
     def validate_config(cls):
