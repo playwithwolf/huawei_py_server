@@ -8,12 +8,9 @@ from huawei_auth import HuaweiAuthService
 from utils import ResponseFormatter
 import uvicorn
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# 配置日志 - 使用统一的Logger类避免重复日志
+from utils import Logger
+logger = Logger.setup_logger(__name__)
 
 # 创建FastAPI应用
 app = FastAPI(
