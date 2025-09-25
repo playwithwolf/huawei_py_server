@@ -39,10 +39,10 @@ pip install -r requirements.txt
 
 ```python
 # 华为AGC配置 - 直接在代码中设置
-HUAWEI_CLIENT_ID = '107917734'
-HUAWEI_CLIENT_SECRET = 'f462eeae4f5642a0a91d6edc9b1d64c6'
-HUAWEI_PROJECT_ID = '99536292104595456'
-HUAWEI_DEVELOPER_ID = '1781922428767748032'
+HUAWEI_CLIENT_ID = '10xxxxx'
+HUAWEI_CLIENT_SECRET = 'xxxxxxxx'
+HUAWEI_PROJECT_ID = '99xxxxx'
+HUAWEI_DEVELOPER_ID = '178xxxxxx'
 ```
 
 如需修改配置，请直接编辑 `config.py` 文件。
