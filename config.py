@@ -22,7 +22,7 @@ class Config:
     HUAWEI_TOKENINFO_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/tokeninfo'
     HUAWEI_AGC_TOKENINFO_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/tokeninfo'  # AGC Token验证接口
     HUAWEI_CERTS_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/certs'
-    HUAWEI_ISSUER = 'https://accounts.myhuawei.com'  # 修改为正确的issuer
+    HUAWEI_ISSUER = 'https://accounts.huawei.com'  # 修改为正确的issuer
     HUAWEI_USERINFO_ENDPOINT = 'https://oauth-api.cloud.huawei.com/rest.php?nsp_svc=huawei.oauth2.user.getTokenInfo'  # 用户信息接口
     
     @classmethod
