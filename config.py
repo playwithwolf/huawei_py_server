@@ -12,10 +12,10 @@ class Config:
     HUAWEI_DEVELOPER_ID = '1781922428767748032'
     
     # 服务器配置
-    FLASK_ENV = 'development'
-    FLASK_DEBUG = True
+    FASTAPI_ENV = os.environ.get('FASTAPI_ENV', 'production')
+    FASTAPI_DEBUG = os.environ.get('FASTAPI_DEBUG', 'False').lower() == 'true'
     HOST = '0.0.0.0'
-    PORT = 5000
+    PORT = int(os.environ.get('PORT', 5000))
     
     # 华为OAuth相关URL
     HUAWEI_TOKEN_URL = 'https://oauth-login.cloud.huawei.com/oauth2/v3/token'

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: huawei-auth-server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 4
+    envVars:
+      - key: FASTAPI_ENV
+        value: production
+      - key: FASTAPI_DEBUG
+        value: False
+      - key: HUAWEI_CLIENT_ID
+        value: 107917734
+      - key: HUAWEI_CLIENT_SECRET
+        value: f462eeae4f5642a0a91d6edc9b1d64c6
+      - key: HUAWEI_PROJECT_ID
+        value: 99536292104595456
+      - key: HUAWEI_DEVELOPER_ID
+        value: 1781922428767748032

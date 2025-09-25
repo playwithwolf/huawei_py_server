@@ -1,8 +1,12 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import logging
 import os
 from config import Config
 from huawei_auth import HuaweiAuthService
+from utils import ResponseFormatter
+import uvicorn
 
 # 配置日志
 logging.basicConfig(
@@ -11,56 +15,75 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 创建Flask应用
-app = Flask(__name__)
+# 创建FastAPI应用
+app = FastAPI(
+    title="华为认证服务器",
+    description="华为AGC认证服务API",
+    version="1.0.0"
+)
 
 # 初始化华为认证服务
 huawei_auth = HuaweiAuthService()
 
-@app.route('/verify_id_token', methods=['POST'])
-def verify_id_token():
+# Pydantic模型定义
+class IdTokenRequest(BaseModel):
+    id_token: str
+
+class ServerAuthCodeRequest(BaseModel):
+    server_auth_code: str
+
+class AccessTokenRequest(BaseModel):
+    access_token: str
+
+class TokenRequest(BaseModel):
+    code: str
+    redirect_uri: str
+    grant_type: str = "authorization_code"
+
+class TokenInfoRequest(BaseModel):
+    access_token: str
+
+class AGCTokenRequest(BaseModel):
+    access_token: str
+
+@app.post("/verify_id_token")
+async def verify_id_token(request: IdTokenRequest):
     """
     直接使用idToken验证OpenID和UnionID的有效性
     """
     try:
-        data = request.get_json()
-        if not data or 'id_token' not in data:
-            return jsonify(ResponseFormatter.error("缺少id_token参数", "missing_parameter", 400))
-        
-        id_token = data['id_token']
-        
         # 验证idToken并提取用户信息
-        result = huawei_auth.verify_id_token_and_get_user_info(id_token)
+        result = huawei_auth.verify_id_token_and_get_user_info(request.id_token)
         
-        return jsonify(result)
+        return result
         
     except Exception as e:
         logger.error(f"验证idToken接口异常: {str(e)}")
-        return jsonify(ResponseFormatter.error(f"服务器内部错误: {str(e)}", "internal_error", 500))
+        raise HTTPException(
+            status_code=500,
+            detail=ResponseFormatter.error(f"服务器内部错误: {str(e)}", "internal_error", 500)
+        )
 
-@app.route('/verify_server_auth_code', methods=['POST'])
-def verify_server_auth_code():
+@app.post("/verify_server_auth_code")
+async def verify_server_auth_code(request: ServerAuthCodeRequest):
     """
     使用serverAuthCode换取idToken后再验证OpenID和UnionID的有效性
     """
     try:
-        data = request.get_json()
-        if not data or 'server_auth_code' not in data:
-            return jsonify(ResponseFormatter.error("缺少server_auth_code参数", "missing_parameter", 400))
-        
-        server_auth_code = data['server_auth_code']
-        
         # 第一步：使用serverAuthCode换取access_token和id_token
-        token_result = huawei_auth.exchange_id_token_by_server_auth_code(server_auth_code)
+        token_result = huawei_auth.exchange_id_token_by_server_auth_code(request.server_auth_code)
         
         if not token_result['success']:
-            return jsonify(token_result)
+            return token_result
         
         token_data = token_result['data']
         id_token = token_data.get('id_token')
         
         if not id_token:
-            return jsonify(ResponseFormatter.error("未获取到id_token", "no_id_token", 400))
+            raise HTTPException(
+                status_code=400,
+                detail=ResponseFormatter.error("未获取到id_token", "no_id_token", 400)
+            )
         
         # 第二步：验证idToken并提取用户信息
         verify_result = huawei_auth.verify_id_token_and_get_user_info(id_token)
@@ -74,202 +97,175 @@ def verify_server_auth_code():
                 'verification_method': 'server_auth_code'
             }
             
-            return jsonify(ResponseFormatter.success(combined_result, "使用serverAuthCode验证成功"))
+            return ResponseFormatter.success(combined_result, "使用serverAuthCode验证成功")
         else:
-            return jsonify(verify_result)
+            return verify_result
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"验证serverAuthCode接口异常: {str(e)}")
-        return jsonify(ResponseFormatter.error(f"服务器内部错误: {str(e)}", "internal_error", 500))
+        raise HTTPException(
+            status_code=500,
+            detail=ResponseFormatter.error(f"服务器内部错误: {str(e)}", "internal_error", 500)
+        )
 
-@app.route('/get_user_info_by_access_token', methods=['POST'])
-def get_user_info_by_access_token():
+@app.post("/get_user_info_by_access_token")
+async def get_user_info_by_access_token(request: AccessTokenRequest):
     """
     使用access_token获取用户信息（包含OpenID和UnionID）
     """
     try:
-        data = request.get_json()
-        if not data or 'access_token' not in data:
-            return jsonify(ResponseFormatter.error("缺少access_token参数", "missing_parameter", 400))
-        
-        access_token = data['access_token']
-        
         # 使用access_token获取用户信息
-        result = huawei_auth.get_user_info_by_access_token(access_token)
+        result = huawei_auth.get_user_info_by_access_token(request.access_token)
         
-        return jsonify(result)
+        return result
         
     except Exception as e:
         logger.error(f"获取用户信息接口异常: {str(e)}")
-        return jsonify(ResponseFormatter.error(f"服务器内部错误: {str(e)}", "internal_error", 500))
+        raise HTTPException(
+            status_code=500,
+            detail=ResponseFormatter.error(f"服务器内部错误: {str(e)}", "internal_error", 500)
+        )
 
-@app.route('/', methods=['GET'])
-def health_check():
+@app.get("/")
+async def health_check():
     """健康检查端点"""
-    return jsonify({
+    return {
         'status': 'ok',
         'message': '华为认证服务器运行正常',
         'version': '1.0.0'
-    })
+    }
 
-@app.route('/api/agc/verify-token', methods=['POST'])
-def verify_agc_token():
+@app.post("/api/agc/verify-token")
+async def verify_agc_token(request: AGCTokenRequest):
     """
     验证AGConnect访问令牌
     使用华为AGC官方验证接口
     """
     try:
-        data = request.get_json()
-        
-        # 验证必需参数
-        if not data or not data.get('access_token'):
-            return jsonify({
-                'success': False,
-                'error': '缺少access_token参数'
-            }), 400
-        
-        access_token = data['access_token']
-        
         # 调用华为AGC token验证服务
-        result = huawei_auth.verify_agc_token(access_token)
+        result = huawei_auth.verify_agc_token(request.access_token)
         
         if result['success']:
             logger.info("AGC Token验证成功")
-            return jsonify(result)
+            return result
         else:
             logger.warning(f"AGC Token验证失败: {result.get('error', 'Unknown error')}")
-            return jsonify(result), 401
+            raise HTTPException(status_code=401, detail=result)
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"AGC Token验证异常: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'服务器内部错误: {str(e)}'
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail={
+                'success': False,
+                'error': f'服务器内部错误: {str(e)}'
+            }
+        )
 
-@app.route('/api/huawei/token', methods=['POST'])
-def get_token():
+@app.post("/api/huawei/token")
+async def get_token(request: TokenRequest):
     """
     通过授权码获取访问令牌
     对应Java Demo中的TokenAPIDemo功能
     """
     try:
-        data = request.get_json()
-        
-        # 验证必需参数
-        required_fields = ['code', 'redirect_uri']
-        missing_fields = [field for field in required_fields if not data.get(field)]
-        
-        if missing_fields:
-            return jsonify({
-                'success': False,
-                'error': f'缺少必需参数: {", ".join(missing_fields)}'
-            }), 400
-        
-        code = data['code']
-        redirect_uri = data['redirect_uri']
-        grant_type = data.get('grant_type', 'authorization_code')
-        
-        logger.info(f"获取Token请求: code={code[:10]}..., redirect_uri={redirect_uri}")
+        logger.info(f"获取Token请求: code={request.code[:10]}..., redirect_uri={request.redirect_uri}")
         
         # 调用华为认证服务
-        result = huawei_auth.get_token_by_code(code, redirect_uri, grant_type)
+        result = huawei_auth.get_token_by_code(request.code, request.redirect_uri, request.grant_type)
         
         if result['success']:
             logger.info("Token获取成功")
-            return jsonify(result), 200
+            return result
         else:
             logger.error(f"Token获取失败: {result['error']}")
             status_code = result.get('status_code', 400)
-            return jsonify(result), status_code
+            raise HTTPException(status_code=status_code, detail=result)
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取Token异常: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'服务器内部错误: {str(e)}'
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail={
+                'success': False,
+                'error': f'服务器内部错误: {str(e)}'
+            }
+        )
 
-@app.route('/api/huawei/tokeninfo', methods=['POST'])
-def get_token_info():
+@app.post("/api/huawei/tokeninfo")
+async def get_token_info(request: TokenInfoRequest):
     """
     获取访问令牌信息
     对应Java Demo中的GetTokenInfoAPIDemo功能
     """
     try:
-        data = request.get_json()
-        
-        # 验证必需参数
-        if not data.get('access_token'):
-            return jsonify({
-                'success': False,
-                'error': '缺少access_token参数'
-            }), 400
-        
-        access_token = data['access_token']
-        
-        logger.info(f"获取Token信息请求: access_token={access_token[:20]}...")
+        logger.info(f"获取Token信息请求: access_token={request.access_token[:20]}...")
         
         # 调用华为认证服务
-        result = huawei_auth.get_token_info(access_token)
+        result = huawei_auth.get_token_info(request.access_token)
         
         if result['success']:
             logger.info("Token信息获取成功")
-            return jsonify(result), 200
+            return result
         else:
             logger.error(f"Token信息获取失败: {result['error']}")
             status_code = result.get('status_code', 400)
-            return jsonify(result), status_code
+            raise HTTPException(status_code=status_code, detail=result)
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取Token信息异常: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'服务器内部错误: {str(e)}'
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail={
+                'success': False,
+                'error': f'服务器内部错误: {str(e)}'
+            }
+        )
 
-@app.route('/api/huawei/verify-idtoken', methods=['POST'])
-def verify_id_token_api():
+@app.post("/api/huawei/verify-idtoken")
+async def verify_id_token_api(request: IdTokenRequest):
     """
     验证ID Token
     对应Java Demo中的IDTokenParser功能
     """
     try:
-        data = request.get_json()
-        
-        # 验证必需参数
-        if not data.get('id_token'):
-            return jsonify({
-                'success': False,
-                'error': '缺少id_token参数'
-            }), 400
-        
-        id_token = data['id_token']
-        
-        logger.info(f"验证ID Token请求: id_token={id_token[:50]}...")
+        logger.info(f"验证ID Token请求: id_token={request.id_token[:50]}...")
         
         # 调用华为认证服务
-        result = huawei_auth.verify_id_token(id_token)
+        result = huawei_auth.verify_id_token(request.id_token)
         
         if result['success']:
             logger.info("ID Token验证成功")
-            return jsonify(result), 200
+            return result
         else:
             logger.error(f"ID Token验证失败: {result['error']}")
-            return jsonify(result), 400
+            raise HTTPException(status_code=400, detail=result)
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"验证ID Token异常: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'服务器内部错误: {str(e)}'
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail={
+                'success': False,
+                'error': f'服务器内部错误: {str(e)}'
+            }
+        )
 
-@app.route('/api/huawei/config', methods=['GET'])
-def get_config():
+@app.get("/api/huawei/config")
+async def get_config():
     """获取当前配置信息（不包含敏感信息）"""
     try:
-        return jsonify({
+        return {
             'success': True,
             'data': {
                 'client_id': Config.HUAWEI_CLIENT_ID,
@@ -279,30 +275,40 @@ def get_config():
                 'certs_url': Config.HUAWEI_CERTS_URL,
                 'issuer': Config.HUAWEI_ISSUER
             }
-        }), 200
+        }
     except Exception as e:
         logger.error(f"获取配置异常: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'服务器内部错误: {str(e)}'
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail={
+                'success': False,
+                'error': f'服务器内部错误: {str(e)}'
+            }
+        )
 
-@app.errorhandler(404)
-def not_found(error):
+# 全局异常处理器
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
     """404错误处理"""
-    return jsonify({
-        'success': False,
-        'error': '接口不存在'
-    }), 404
+    return JSONResponse(
+        status_code=404,
+        content={
+            'success': False,
+            'error': '接口不存在'
+        }
+    )
 
-@app.errorhandler(500)
-def internal_error(error):
+@app.exception_handler(500)
+async def internal_error_handler(request: Request, exc):
     """500错误处理"""
-    logger.error(f"服务器内部错误: {str(error)}")
-    return jsonify({
-        'success': False,
-        'error': '服务器内部错误'
-    }), 500
+    logger.error(f"服务器内部错误: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            'success': False,
+            'error': '服务器内部错误'
+        }
+    )
 
 if __name__ == '__main__':
     try:
@@ -312,11 +318,12 @@ if __name__ == '__main__':
         
         # 启动服务器
         logger.info(f"启动华为认证服务器: {Config.HOST}:{Config.PORT}")
-        app.run(
+        uvicorn.run(
+            "app:app",
             host=Config.HOST,
             port=Config.PORT,
-            debug=Config.FLASK_DEBUG,
-            use_reloader=False
+            reload=Config.FASTAPI_DEBUG,
+            log_level="info"
         )
         
     except ValueError as e:
