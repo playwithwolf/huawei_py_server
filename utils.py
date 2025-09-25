@@ -100,34 +100,10 @@ def handle_exceptions(logger: logging.Logger):
         return wrapper
     return decorator
 
-def validate_request_data(required_fields: list, optional_fields: list = None):
-    """请求数据验证装饰器"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            from flask import request
-            
-            data = request.get_json()
-            if not data:
-                return ResponseFormatter.error("请求体不能为空"), 400
-            
-            # 检查必需字段
-            missing_fields = [field for field in required_fields if not data.get(field)]
-            if missing_fields:
-                return ResponseFormatter.error(
-                    f"缺少必需参数: {', '.join(missing_fields)}",
-                    error_code="MISSING_REQUIRED_FIELDS"
-                ), 400
-            
-            # 过滤允许的字段
-            allowed_fields = required_fields + (optional_fields or [])
-            filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
-            
-            # 将过滤后的数据传递给函数
-            kwargs['validated_data'] = filtered_data
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
+# 注意：此装饰器已废弃，FastAPI使用Pydantic模型进行数据验证
+# def validate_request_data(required_fields: list, optional_fields: list = None):
+#     """请求数据验证装饰器 - 已废弃，FastAPI使用Pydantic模型"""
+#     pass
 
 class RequestValidator:
     """请求验证器"""
@@ -187,34 +163,7 @@ class RequestValidator:
             'id_token': data['id_token'].strip()
         }
 
-def log_request_response(logger: logging.Logger):
-    """请求响应日志装饰器"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            from flask import request
-            
-            # 记录请求
-            logger.info(f"请求 {func.__name__}: {request.method} {request.path}")
-            if request.is_json:
-                # 不记录敏感信息
-                safe_data = {}
-                for key, value in request.get_json().items():
-                    if key in ['access_token', 'id_token', 'code']:
-                        safe_data[key] = f"{str(value)[:10]}..." if value else None
-                    else:
-                        safe_data[key] = value
-                logger.debug(f"请求数据: {json.dumps(safe_data, ensure_ascii=False)}")
-            
-            # 执行函数
-            start_time = datetime.now()
-            result = func(*args, **kwargs)
-            end_time = datetime.now()
-            
-            # 记录响应
-            duration = (end_time - start_time).total_seconds()
-            logger.info(f"响应 {func.__name__}: 耗时 {duration:.3f}s")
-            
-            return result
-        return wrapper
-    return decorator
+# 注意：此装饰器已废弃，FastAPI使用内置的请求日志功能
+# def log_request_response(logger: logging.Logger):
+#     """请求响应日志装饰器 - 已废弃，FastAPI有内置日志功能"""
+#     pass

@@ -50,8 +50,8 @@ HUAWEI_DEVELOPER_ID=1781922428767748032
 - 应用会自动使用该端口，无需手动配置
 
 ### 2. 框架对比
-- **FastAPI**: 使用 `uvicorn` 作为 ASGI 服务器
-- **Flask**: 使用 `gunicorn` 作为 WSGI 服务器
+- **FastAPI**: 使用 `uvicorn` 作为 ASGI 服务器（当前项目）
+- **Flask**: 使用 `gunicorn` 作为 WSGI 服务器（已废弃）
 
 ### 3. 配置说明
 - `FASTAPI_ENV`: 设置为 `production` 用于生产环境

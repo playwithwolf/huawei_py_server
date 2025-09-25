@@ -187,4 +187,5 @@ fetch('/verify_server_auth_code', {
 ## 部署说明
 1. 确保已安装所有依赖：`pip install -r requirements.txt`
 2. 配置config.py中的华为应用信息
-3. 启动服务：`python app.py` 或 `gunicorn -w 4 -b 0.0.0.0:5000 app:app`
+3. 启动服务：`python app.py` 或 `uvicorn app:app --host 0.0.0.0 --port 5000 --workers 4`
+4. 访问API文档：`http://localhost:5000/docs` (FastAPI自动生成)

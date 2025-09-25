@@ -15,7 +15,7 @@
 
 ```
 huawei_py_server/
-├── app.py              # Flask应用主文件
+├── app.py              # FastAPI应用主文件
 ├── config.py           # 配置管理模块（包含华为参数）
 ├── huawei_auth.py      # 华为认证服务类
 ├── utils.py            # 工具模块(错误处理、日志记录)
@@ -227,14 +227,16 @@ GET /api/huawei/config
 
 ### 项目依赖
 
-- **Flask**: Web框架
+- **FastAPI**: 现代高性能Web框架
+- **uvicorn**: ASGI服务器
+- **pydantic**: 数据验证和序列化
 - **requests**: HTTP客户端
 - **PyJWT**: JWT处理
 - **cryptography**: 加密算法支持
 
 ### 代码结构
 
-- `app.py`: Flask应用和API路由
+- `app.py`: FastAPI应用和API路由
 - `config.py`: 配置管理和环境变量处理
 - `huawei_auth.py`: 华为认证核心逻辑
 - `utils.py`: 工具函数、错误处理、日志记录
@@ -252,10 +254,10 @@ GET /api/huawei/config
 
 ### 生产环境部署
 
-使用Gunicorn部署：
+使用uvicorn部署：
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+uvicorn app:app --host 0.0.0.0 --port 5000 --workers 4
 ```
 
 ### Docker部署
@@ -272,7 +274,7 @@ RUN pip install -r requirements.txt
 COPY . .
 EXPOSE 5000
 
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000", "--workers", "4"]
 ```
 
 ## 许可证
