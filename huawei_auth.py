@@ -41,24 +41,44 @@ class HuaweiAuthService:
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
             
+            self.logger.info(f"发送请求到华为OAuth接口: {Config.HUAWEI_TOKEN_URL}")
+            self.logger.info(f"请求参数: grant_type={data['grant_type']}, client_id={data['client_id'][:10]}..., code={data['code'][:10]}...")
+            
             # 发送请求到华为OAuth接口
             response = requests.post(Config.HUAWEI_TOKEN_URL, data=data, headers=headers, timeout=30)
             
-            self.logger.info(f"换取idToken请求响应状态: {response.status_code}")
+            self.logger.info(f"华为服务器响应状态码: {response.status_code}")
+            self.logger.info(f"华为服务器响应头: {dict(response.headers)}")
+            
+            # 记录完整的响应内容
+            response_text = response.text
+            self.logger.info(f"华为服务器完整响应内容: {response_text}")
             
             if response.status_code == 200:
-                result = response.json()
-                self.logger.info("成功换取idToken")
-                
-                return ResponseFormatter.success({
-                    'id_token': result.get('id_token'),
-                    'access_token': result.get('access_token'),
-                    'expires_in': result.get('expires_in'),
-                    'token_type': result.get('token_type', 'Bearer'),
-                    'refresh_token': result.get('refresh_token')
-                }, "成功换取idToken")
+                try:
+                    result = response.json()
+                    self.logger.info(f"华为服务器返回JSON解析成功: {json.dumps(result, ensure_ascii=False, indent=2)}")
+                    self.logger.info("成功换取idToken")
+                    
+                    return ResponseFormatter.success({
+                        'id_token': result.get('id_token'),
+                        'access_token': result.get('access_token'),
+                        'expires_in': result.get('expires_in'),
+                        'token_type': result.get('token_type', 'Bearer'),
+                        'refresh_token': result.get('refresh_token')
+                    }, "成功换取idToken")
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"华为服务器返回的JSON解析失败: {str(e)}")
+                    return ResponseFormatter.error(f"华为服务器返回的JSON解析失败: {str(e)}", "json_decode_error", 500)
             else:
-                error_data = response.json() if response.content else {}
+                self.logger.error(f"华为服务器返回错误状态码: {response.status_code}")
+                try:
+                    error_data = response.json() if response.content else {}
+                    self.logger.error(f"华为服务器错误响应JSON: {json.dumps(error_data, ensure_ascii=False, indent=2)}")
+                except:
+                    self.logger.error(f"华为服务器错误响应(非JSON): {response_text}")
+                    error_data = {}
+                
                 error_msg = error_data.get('error_description', f'HTTP {response.status_code}')
                 self.logger.error(f"换取idToken失败: {error_msg}")
                 
@@ -355,11 +375,19 @@ class HuaweiAuthService:
         验证ID Token - 增强版本，基于华为AI推荐方案
         """
         try:
+            self.logger.info(f"开始验证ID Token: {id_token[:50]}...")
+            
             # 使用PyJWKClient自动获取最新JWKS公钥
+            self.logger.info(f"从JWKS URL获取公钥: {self.config.HUAWEI_CERTS_URL}")
             jwks_client = PyJWKClient(self.config.HUAWEI_CERTS_URL)
             signing_key = jwks_client.get_signing_key_from_jwt(id_token)
             
+            self.logger.info(f"成功获取签名密钥，算法: {signing_key.algorithm_name}")
+            
             # 验证JWT，支持RS256和PS256算法
+            self.logger.info(f"开始JWT验证，使用算法: RS256, PS256")
+            self.logger.info(f"验证参数 - audience: {self.config.HUAWEI_CLIENT_ID}, issuer: {self.config.HUAWEI_ISSUER}")
+            
             payload = jwt.decode(
                 id_token,
                 key=signing_key.key,
@@ -369,30 +397,39 @@ class HuaweiAuthService:
                 options={"require": ["exp", "iat", "iss", "aud"]}
             )
 
+            self.logger.info(f"JWT解码成功，payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+
             # 验证时间有效性
             current_time = datetime.utcnow().timestamp()
+            self.logger.info(f"时间验证 - 当前时间: {current_time}, token过期时间: {payload['exp']}, token签发时间: {payload['iat']}")
+            
             if payload['exp'] < current_time:
+                self.logger.error(f"Token已过期: exp={payload['exp']}, current={current_time}")
                 return {
                     'success': False,
                     'error': 'Token已过期'
                 }
             if payload['iat'] > current_time:
+                self.logger.error(f"Token签发时间无效: iat={payload['iat']}, current={current_time}")
                 return {
                     'success': False,
                     'error': 'Token签发时间无效'
                 }
             
+            self.logger.info("ID Token验证成功")
             return {
                 'success': True,
                 'data': payload
             }
             
         except jwt.PyJWTError as e:
+            self.logger.error(f"JWT验证失败: {str(e)}")
             return {
                 'success': False,
                 'error': f'Token验证失败: {str(e)}'
             }
         except Exception as e:
+            self.logger.error(f"ID Token验证异常: {str(e)}")
             return {
                 'success': False,
                 'error': f'验证异常: {str(e)}'
@@ -476,29 +513,51 @@ class HuaweiAuthService:
                 "open_id": "OPENID"
             }
 
+            self.logger.info(f"发送请求到华为用户信息接口: {self.config.HUAWEI_USERINFO_ENDPOINT}")
+            self.logger.info(f"请求参数: access_token={access_token[:20]}..., open_id=OPENID")
+
             response = requests.post(self.config.HUAWEI_USERINFO_ENDPOINT, headers=headers, data=data, timeout=30)
             
+            self.logger.info(f"华为用户信息接口响应状态码: {response.status_code}")
+            self.logger.info(f"华为用户信息接口响应头: {dict(response.headers)}")
+            
+            # 记录完整的响应内容
+            response_text = response.text
+            self.logger.info(f"华为用户信息接口完整响应内容: {response_text}")
+            
             if response.status_code != 200:
+                self.logger.error(f"UnionID获取失败，状态码: {response.status_code}")
                 return {
                     'success': False,
                     'error': f'UnionID获取失败: {response.text}'
                 }
             
-            result = response.json()
-            return {
-                'success': True,
-                'data': {
-                    'union_id': result.get('union_id'),
-                    'scope': result.get('scope', '')
+            try:
+                result = response.json()
+                self.logger.info(f"华为用户信息接口返回JSON解析成功: {json.dumps(result, ensure_ascii=False, indent=2)}")
+                
+                return {
+                    'success': True,
+                    'data': {
+                        'union_id': result.get('union_id'),
+                        'scope': result.get('scope', '')
+                    }
                 }
-            }
+            except json.JSONDecodeError as e:
+                self.logger.error(f"华为用户信息接口返回的JSON解析失败: {str(e)}")
+                return {
+                    'success': False,
+                    'error': f'JSON解析失败: {str(e)}'
+                }
             
         except requests.exceptions.RequestException as e:
+            self.logger.error(f"获取UnionID网络请求异常: {str(e)}")
             return {
                 'success': False,
                 'error': f'网络请求异常: {str(e)}'
             }
         except Exception as e:
+            self.logger.error(f"获取UnionID异常: {str(e)}")
             return {
                 'success': False,
                 'error': f'获取UnionID异常: {str(e)}'
@@ -510,9 +569,15 @@ class HuaweiAuthService:
         同时验证ID Token和Access Token，获取OpenID和UnionID
         """
         try:
+            self.logger.info("开始华为凭证验证流程")
+            self.logger.info(f"ID Token: {id_token[:50]}...")
+            self.logger.info(f"Access Token: {access_token[:20]}...")
+            
             # 验证ID Token
+            self.logger.info("步骤1: 验证ID Token")
             id_token_result = self.verify_id_token(id_token)
             if not id_token_result.get('success'):
+                self.logger.error(f"ID Token验证失败: {id_token_result.get('error')}")
                 return ResponseFormatter.error(
                     f"ID Token验证失败: {id_token_result.get('error')}",
                     "id_token_invalid",
@@ -520,8 +585,10 @@ class HuaweiAuthService:
                 )
             
             payload = id_token_result['data']
+            self.logger.info(f"ID Token验证成功，获取到payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
             
             # 获取UnionID
+            self.logger.info("步骤2: 获取UnionID")
             union_result = self.get_union_id(access_token)
             if not union_result.get('success'):
                 self.logger.warning(f"UnionID获取失败: {union_result.get('error')}")
@@ -529,8 +596,9 @@ class HuaweiAuthService:
                 union_data = {'union_id': None, 'scope': ''}
             else:
                 union_data = union_result['data']
+                self.logger.info(f"UnionID获取成功: {json.dumps(union_data, ensure_ascii=False, indent=2)}")
             
-            return ResponseFormatter.success({
+            final_result = {
                 "openid": payload.get('openid'),
                 "unionid": union_data.get('union_id'),
                 "scope": union_data.get('scope', ''),
@@ -541,7 +609,11 @@ class HuaweiAuthService:
                     "email": payload.get('email', ''),
                     "picture": payload.get('picture', '')
                 }
-            }, "华为凭证验证成功")
+            }
+            
+            self.logger.info(f"华为凭证验证完成，最终结果: {json.dumps(final_result, ensure_ascii=False, indent=2)}")
+            
+            return ResponseFormatter.success(final_result, "华为凭证验证成功")
 
         except Exception as e:
             self.logger.error(f"华为凭证验证异常: {str(e)}")
